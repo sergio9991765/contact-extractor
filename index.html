@@ -1,0 +1,329 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#101827">
+<link rel="manifest" href="manifest.webmanifest">
+<title>Contact Extractor</title>
+
+<style>
+* { box-sizing: border-box; }
+
+body {
+    margin: 0;
+    padding: 22px;
+    background: #101827;
+    color: white;
+    font-family: -apple-system, BlinkMacSystemFont, Arial;
+}
+
+.container {
+    max-width: 520px;
+    margin: 30px auto;
+}
+
+h1 { font-size: 29px; }
+
+.sub {
+    color: #aab6c8;
+    line-height: 1.5;
+}
+
+.card {
+    background: #1d293b;
+    padding: 20px;
+    border-radius: 16px;
+    margin-top: 20px;
+}
+
+button, .file-label {
+    display: block;
+    width: 100%;
+    padding: 16px;
+    border: 0;
+    border-radius: 12px;
+    background: #2878ed;
+    color: white;
+    font-size: 16px;
+    font-weight: bold;
+    text-align: center;
+    cursor: pointer;
+    margin-top: 12px;
+}
+
+button:disabled {
+    opacity: .4;
+}
+
+input[type=file] {
+    width: 100%;
+    margin-top: 15px;
+}
+
+.secondary {
+    background: #34445c;
+}
+
+.status {
+    color: #9cb9e7;
+    margin-top: 15px;
+    overflow-wrap: anywhere;
+}
+
+.preview {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    font-size: 13px;
+    line-height: 1.8;
+    color: #d4e2f8;
+}
+
+.count {
+    font-size: 25px;
+    font-weight: bold;
+    color: #65d69a;
+}
+</style>
+</head>
+
+<body>
+<div class="container">
+
+<h1>📇 Contact Extractor</h1>
+
+<p class="sub">
+Extract UK names, postcodes and phone numbers
+from your TXT or CSV files.
+</p>
+
+<div class="card">
+    <h3>1. Select your file</h3>
+    <input
+        type="file"
+        id="file"
+        accept=".txt,.csv,text/plain,text/csv"
+    >
+    <p class="status" id="filename">No file selected</p>
+
+    <button id="extract" disabled>
+        Extract Contacts
+    </button>
+</div>
+
+<div class="card">
+    <h3>2. Extraction results</h3>
+    <div class="count" id="count">0</div>
+    <p class="sub">Unique phone numbers found</p>
+
+    <div class="preview" id="preview">
+        Your results will appear here.
+    </div>
+
+    <button id="download" disabled>
+        Download CSV
+    </button>
+</div>
+
+<p class="sub">
+Your files are processed locally on your device.
+No contact data is uploaded.
+</p>
+
+</div>
+
+<script>
+const fileInput = document.getElementById("file");
+const extractButton = document.getElementById("extract");
+const downloadButton = document.getElementById("download");
+
+let selectedFile = null;
+let results = [];
+
+fileInput.addEventListener("change", () => {
+    selectedFile = fileInput.files[0] || null;
+
+    document.getElementById("filename").textContent =
+        selectedFile ? selectedFile.name : "No file selected";
+
+    extractButton.disabled = !selectedFile;
+});
+
+function normaliseNumber(raw) {
+    let digits = raw.replace(/\D/g, "");
+
+    if (digits.startsWith("0044")) {
+        digits = digits.slice(4);
+    } else if (digits.startsWith("44")) {
+        digits = digits.slice(2);
+    }
+
+    if (!digits.startsWith("0")) {
+        digits = "0" + digits;
+    }
+
+    if (/^07\d{9}$/.test(digits)) {
+        return "+44" + digits.slice(1);
+    }
+
+    if (/^01\d{8,9}$/.test(digits)) {
+        return "+44" + digits.slice(1);
+    }
+
+    if (/^02\d{9}$/.test(digits)) {
+        return "+44" + digits.slice(1);
+    }
+
+    return null;
+}
+
+function cleanName(value) {
+    value = value.replace(
+        /^(name|full name|customer|client)\s*[:=-]\s*/i,
+        ""
+    );
+
+    value = value.replace(/[^A-Za-zÀ-ÿ' -]/g, " ");
+    value = value.replace(/\s+/g, " ").trim();
+
+    const words = value.split(" ");
+
+    if (words.length < 1 || words.length > 4) return null;
+    if (value.length < 2) return null;
+
+    return value.replace(/\b\w/g, c => c.toUpperCase());
+}
+
+function extractContacts(text) {
+    const phonePattern =
+        /(?<!\d)(?:(?:\+|00)44[\s().-]*(?:\(0\)[\s().-]*)?|0)(?:[127](?:[\s().-]*\d){8,9})(?!\d)/g;
+
+    const postcodePattern =
+        /\b[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2}\b/i;
+
+    const addressWords =
+        /\b(street|road|avenue|lane|drive|close|court|crescent|terrace|gardens|flat|apartment|house|high street|address)\b/i;
+
+    const matches = [...text.matchAll(phonePattern)];
+    const contacts = [];
+    const seen = new Set();
+
+    let previousEnd = 0;
+
+    for (const match of matches) {
+        const number = normaliseNumber(match[0]);
+        const start = match.index;
+        const end = start + match[0].length;
+
+        if (!number) continue;
+
+        const record = text.slice(previousEnd, start);
+
+        previousEnd = end;
+
+        if (seen.has(number)) continue;
+
+        const parts = record
+            .split(/[,;\n|]+/)
+            .map(p => p.trim())
+            .filter(Boolean);
+
+        let postcode = "";
+
+        for (const part of parts) {
+            const found = part.match(postcodePattern);
+            if (found) {
+                postcode = found[0].toUpperCase();
+                break;
+            }
+        }
+
+        let name = "Client";
+
+        for (const part of parts) {
+            if (postcodePattern.test(part)) continue;
+            if (/\d|@/.test(part)) continue;
+            if (addressWords.test(part)) continue;
+
+            const possible = cleanName(part);
+
+            if (possible) {
+                name = possible;
+                break;
+            }
+        }
+
+        contacts.push({
+            name,
+            postcode: postcode || "Postcode unavailable",
+            number
+        });
+
+        seen.add(number);
+    }
+
+    return contacts;
+}
+
+extractButton.addEventListener("click", async () => {
+    if (!selectedFile) return;
+
+    try {
+        const text = await selectedFile.text();
+
+        results = extractContacts(text);
+
+        document.getElementById("count").textContent =
+            results.length;
+
+        document.getElementById("preview").textContent =
+            results.length
+            ? results.slice(0, 20).map(c =>
+                `${c.name} ${c.postcode},${c.number}`
+              ).join("\n")
+            : "No matching contacts found.";
+
+        downloadButton.disabled = results.length === 0;
+
+    } catch (error) {
+        alert("Could not read the file: " + error.message);
+    }
+});
+
+downloadButton.addEventListener("click", () => {
+    const rows = [
+        ["Name UK Postcode", "Phone Number"],
+        ...results.map(c => [
+            `${c.name} ${c.postcode}`,
+            c.number
+        ])
+    ];
+
+    const csv = rows.map(row =>
+        row.map(value =>
+            '"' + String(value).replace(/"/g, '""') + '"'
+        ).join(",")
+    ).join("\r\n");
+
+    const blob = new Blob(
+        ["\uFEFF" + csv],
+        {type: "text/csv;charset=utf-8"}
+    );
+
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+
+    link.href = url;
+    link.download = "extracted_contacts.csv";
+    link.click();
+
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+});
+
+if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {
+    navigator.serviceWorker.register("./sw.js");
+}
+</script>
+</body>
+</html>

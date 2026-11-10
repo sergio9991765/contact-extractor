@@ -1,0 +1,10 @@
+
+{
+  "name": "Contact Extractor",
+  "short_name": "Contacts",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#101827",
+  "theme_color": "#101827",
+  "description": "UK contact extraction tool"
+}
